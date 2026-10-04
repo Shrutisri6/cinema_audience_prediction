@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Theaters — Showtime Forecast</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="nav">
+    <a href="/" class="nav-link">Forecast</a>
+    <a href="/theaters" class="nav-link active">Theaters</a>
+    <a href="/add-theater" class="nav-link">Add Theater</a>
+    <a href="/history" class="nav-link">History</a>
+    <a href="/about" class="nav-link">About</a>
+  </div>
+  <div class="who">Signed in as <strong id="whoName">—</strong><button class="logout-btn" id="logoutBtn">Log Out</button></div>
+</div>
+
+<div class="wrap">
+  <div class="page-header">
+    <div class="page-eyebrow">Reference</div>
+    <div class="page-title">The Circuit</div>
+    <p class="page-sub">Sample theaters plus anything the community has added, each with its own baseline and weekly rhythm. These are what the forecast console multiplies against.</p>
+  </div>
+
+  <div style="text-align:center; margin-bottom:24px;">
+    <a href="/add-theater" class="link-btn">+ Add A Theater</a>
+  </div>
+
+  <div class="theater-grid" id="theaterGrid"></div>
+</div>
+
+<script src="/assets/api.js"></script>
+<script>
+const typeLabel = { multiplex:'Multiplex', single:'Single Screen', premium:'Premium / IMAX', drivein:'Drive-In' };
+const dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+(async function init(){
+  try{
+    const theaters = await api('/api/theaters');
+    const grid = document.getElementById('theaterGrid');
+    grid.innerHTML = theaters.map(t => {
+      const maxMult = Math.max(...t.pattern);
+      const bars = t.pattern.map((m,i) => `<div class="week-bar" style="height:${(m/maxMult*100).toFixed(0)}%"></div>`).join('');
+      const labels = dowShort.map(d => `<span>${d}</span>`).join('');
+      const peakIdx = t.pattern.indexOf(maxMult);
+      return `
+        <div class="theater-card">
+          <div class="theater-card-top">
+            <div>
+              <div class="theater-card-name">${t.name}</div>
+              <div class="theater-card-id">${t.id}</div>
+            </div>
+            <div class="theater-badge">${t.custom ? 'Community' : 'Sample'} · ${typeLabel[t.type]}</div>
+          </div>
+          <div class="theater-card-sub">${t.area}${t.custom ? ` · added by ${t.createdBy}` : ''}</div>
+          <div class="week-bars">${bars}</div>
+          <div class="week-labels">${labels}</div>
+          <div class="theater-card-median">Baseline: <strong>${t.median}</strong>/night · Peak night: <strong>${dowShort[peakIdx]}</strong></div>
+          <div style="margin-top:14px;"><a href="/?theater=${encodeURIComponent(t.id)}" class="link-btn">Forecast This →</a></div>
+        </div>`;
+    }).join('');
+  }catch(e){
+    if (e.status === 401) window.location.href = '/login';
+  }
+})();
+</script>
+</body>
+</html>

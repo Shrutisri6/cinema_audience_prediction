@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log In — Showtime Forecast</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<div class="auth-shell">
+  <div class="pass-card">
+    <div class="pass-eyebrow">Box Office Console</div>
+    <div class="pass-title">Member Access</div>
+    <div class="pass-sub">Sign in to print forecasts and keep your ticket log.</div>
+
+    <div class="tabs">
+      <button class="tab-btn active" id="tabLogin">Log In</button>
+      <button class="tab-btn" id="tabSignup">Sign Up</button>
+    </div>
+
+    <div class="auth-error" id="authError"></div>
+
+    <form id="authForm">
+      <div class="auth-field">
+        <label for="authUsername">Username</label>
+        <input type="text" id="authUsername" autocomplete="username" placeholder="e.g. reel_dana">
+      </div>
+      <div class="auth-field">
+        <label for="authPassword">Password</label>
+        <input type="password" id="authPassword" autocomplete="current-password" placeholder="At least 6 characters">
+      </div>
+      <div class="auth-field hidden" id="confirmField">
+        <label for="authConfirm">Confirm Password</label>
+        <input type="password" id="authConfirm" autocomplete="new-password" placeholder="Repeat password">
+      </div>
+      <button type="submit" class="auth-submit" id="authSubmit">Log In</button>
+    </form>
+
+    <div class="pass-perf">
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="pass-foot">Real accounts, stored on this server's local database.</div>
+  </div>
+</div>
+
+<script>
+const authForm = document.getElementById('authForm');
+const authUsername = document.getElementById('authUsername');
+const authPassword = document.getElementById('authPassword');
+const authConfirm = document.getElementById('authConfirm');
+const confirmField = document.getElementById('confirmField');
+const authError = document.getElementById('authError');
+const authSubmit = document.getElementById('authSubmit');
+const tabLogin = document.getElementById('tabLogin');
+const tabSignup = document.getElementById('tabSignup');
+let authMode = 'login';
+
+function setAuthMode(mode){
+  authMode = mode;
+  authError.classList.remove('show');
+  if (mode === 'login'){
+    tabLogin.classList.add('active'); tabSignup.classList.remove('active');
+    confirmField.classList.add('hidden');
+    authSubmit.textContent = 'Log In';
+  } else {
+    tabSignup.classList.add('active'); tabLogin.classList.remove('active');
+    confirmField.classList.remove('hidden');
+    authSubmit.textContent = 'Create Account';
+  }
+}
+tabLogin.addEventListener('click', () => setAuthMode('login'));
+tabSignup.addEventListener('click', () => setAuthMode('signup'));
+
+function showAuthError(msg){ authError.textContent = msg; authError.classList.add('show'); }
+
+async function api(path, opts = {}){
+  const res = await fetch(path, {
+    method: opts.method || 'GET',
+    headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    credentials: 'include'
+  });
+  let data = null;
+  try { data = await res.json(); } catch(e) {}
+  if (!res.ok){
+    const err = new Error((data && data.error) || `Request failed (${res.status})`);
+    throw err;
+  }
+  return data;
+}
+
+authForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  authError.classList.remove('show');
+  const username = authUsername.value;
+  const password = authPassword.value;
+
+  if (authMode === 'signup' && password !== authConfirm.value){
+    showAuthError('Passwords do not match.');
+    return;
+  }
+
+  authSubmit.disabled = true;
+  authSubmit.textContent = authMode === 'login' ? 'Checking…' : 'Creating…';
+
+  try{
+    await api(authMode === 'login' ? '/api/login' : '/api/signup', {
+      method: 'POST',
+      body: { username, password }
+    });
+    window.location.href = '/';
+  }catch(err){
+    showAuthError(err.message);
+    authSubmit.disabled = false;
+    authSubmit.textContent = authMode === 'login' ? 'Log In' : 'Create Account';
+  }
+});
+</script>
+</body>
+</html>

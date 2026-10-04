@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Add Theater — Showtime Forecast</title>
+<link rel="stylesheet" href="/assets/styles.css">
+<style>
+  .pattern-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:10px; margin-top:6px; }
+  .pattern-col{ display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .pattern-col label{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-muted); text-transform:uppercase; }
+  .pattern-slider{ writing-mode:vertical-lr; direction:rtl; width:6px; height:90px; accent-color:var(--gold); }
+  .pattern-val{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--gold); }
+  .success-box{
+    background:var(--panel); border:1px solid rgba(232,179,76,0.35); border-radius:14px;
+    padding:24px; text-align:center; margin-bottom:28px;
+  }
+  .success-box .big{ font-family:'Anton',sans-serif; font-size:26px; color:var(--gold); margin:6px 0 4px; }
+  .success-actions{ display:flex; gap:10px; justify-content:center; margin-top:16px; flex-wrap:wrap; }
+  .mine-row{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .mine-row:last-child{ border-bottom:none; }
+  .mine-sub{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-muted); margin-top:2px; }
+  .remove-btn{
+    background:transparent; border:1px solid var(--line); color:var(--text-muted);
+    padding:6px 12px; border-radius:7px; font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px; letter-spacing:0.05em; text-transform:uppercase; cursor:pointer;
+  }
+  .remove-btn:hover{ border-color:var(--red); color:var(--red); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="nav">
+    <a href="/" class="nav-link">Forecast</a>
+    <a href="/theaters" class="nav-link">Theaters</a>
+    <a href="/add-theater" class="nav-link active">Add Theater</a>
+    <a href="/history" class="nav-link">History</a>
+    <a href="/about" class="nav-link">About</a>
+  </div>
+  <div class="who">Signed in as <strong id="whoName">—</strong><button class="logout-btn" id="logoutBtn">Log Out</button></div>
+</div>
+
+<div class="wrap">
+  <div class="page-header">
+    <div class="page-eyebrow">Expand The Circuit</div>
+    <div class="page-title">Add A Theater</div>
+    <p class="page-sub">Register a theater with its own baseline and weekly rhythm, then it joins the Forecast page's dropdown — yours and everyone else's.</p>
+  </div>
+
+  <div id="successBox" class="success-box hidden">
+    <div class="page-eyebrow" style="margin-bottom:0;">Registered</div>
+    <div class="big" id="successName">—</div>
+    <div style="color:var(--text-muted); font-size:13px;">Now part of the circuit. Ready to forecast.</div>
+    <div class="success-actions">
+      <a href="/" id="forecastLink" class="link-btn">Forecast This Theater →</a>
+      <button class="link-btn" id="addAnotherBtn">Add Another</button>
+    </div>
+  </div>
+
+  <div class="panel" id="formPanel">
+    <form id="theaterForm">
+      <div class="field">
+        <label for="tName">Theater Name</label>
+        <input type="text" id="tName" placeholder="e.g. Harborlight Cinema" required
+          style="width:100%; background:var(--panel-alt); border:1px solid var(--line); color:var(--text); padding:11px 12px; border-radius:8px; font-family:'Inter',sans-serif; font-size:14px; outline:none;">
+      </div>
+      <div class="field">
+        <label for="tArea">Area / Neighborhood</label>
+        <input type="text" id="tArea" placeholder="e.g. Harborview" required
+          style="width:100%; background:var(--panel-alt); border:1px solid var(--line); color:var(--text); padding:11px 12px; border-radius:8px; font-family:'Inter',sans-serif; font-size:14px; outline:none;">
+      </div>
+      <div class="field">
+        <label for="tType">Type</label>
+        <select id="tType">
+          <option value="multiplex">Multiplex</option>
+          <option value="single">Single Screen</option>
+          <option value="premium">Premium / IMAX</option>
+          <option value="drivein">Drive-In</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="tMedian">Baseline nightly audience <span class="val" id="tMedianVal">250</span></label>
+        <input type="range" id="tMedian" min="10" max="1500" value="250">
+      </div>
+      <div class="field">
+        <label>Weekly demand pattern — drag each night (0.3× quiet &mdash; 2.5× packed)</label>
+        <div class="pattern-grid" id="patternGrid"></div>
+      </div>
+      <button type="submit" class="forecast-btn" id="submitBtn">Register Theater</button>
+      <div class="auth-error" id="formError" style="margin-top:14px;"></div>
+    </form>
+  </div>
+
+  <div class="history-panel" style="margin-top:44px;">
+    <div class="section-label">Theaters You've Added</div>
+    <div class="panel">
+      <div id="mineList"><div class="history-empty">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/api.js"></script>
+<script>
+const dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const dowPatterns = {
+  multiplex: [1.25, 0.80, 0.78, 0.85, 0.95, 1.35, 1.50],
+  single:    [1.10, 0.85, 0.82, 0.85, 0.90, 1.15, 1.25],
+  premium:   [1.30, 0.75, 0.72, 0.80, 0.90, 1.40, 1.60],
+  drivein:   [0.90, 0.60, 0.60, 0.65, 0.80, 1.50, 1.70]
+};
+const typeLabel = { multiplex:'Multiplex', single:'Single Screen', premium:'Premium / IMAX', drivein:'Drive-In' };
+
+const patternGrid = document.getElementById('patternGrid');
+const tType = document.getElementById('tType');
+const tMedian = document.getElementById('tMedian');
+const tMedianVal = document.getElementById('tMedianVal');
+
+function buildPatternSliders(values){
+  patternGrid.innerHTML = dowNames.map((d,i) => `
+    <div class="pattern-col">
+      <span class="pattern-val" id="pv${i}">${values[i].toFixed(2)}</span>
+      <input type="range" class="pattern-slider" min="0.3" max="2.5" step="0.05" value="${values[i]}" data-idx="${i}">
+      <label>${d}</label>
+    </div>`).join('');
+  patternGrid.querySelectorAll('.pattern-slider').forEach(sl => {
+    sl.addEventListener('input', () => {
+      document.getElementById('pv'+sl.dataset.idx).textContent = Number(sl.value).toFixed(2);
+    });
+  });
+}
+buildPatternSliders(dowPatterns.multiplex);
+
+tType.addEventListener('change', () => buildPatternSliders(dowPatterns[tType.value]));
+tMedian.addEventListener('input', () => { tMedianVal.textContent = tMedian.value; });
+
+const theaterForm = document.getElementById('theaterForm');
+const formError = document.getElementById('formError');
+const submitBtn = document.getElementById('submitBtn');
+
+theaterForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  formError.classList.remove('show');
+
+  const pattern = Array.from(patternGrid.querySelectorAll('.pattern-slider')).map(sl => Number(sl.value));
+  const payload = {
+    name: document.getElementById('tName').value.trim(),
+    area: document.getElementById('tArea').value.trim(),
+    type: tType.value,
+    median: Number(tMedian.value),
+    pattern
+  };
+  if (!payload.name || !payload.area){
+    formError.textContent = 'Enter a theater name and area.';
+    formError.classList.add('show');
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Registering…';
+  try{
+    const created = await api('/api/theaters', { method:'POST', body: payload });
+    document.getElementById('successName').textContent = created.name;
+    document.getElementById('forecastLink').href = `/?theater=${encodeURIComponent(created.id)}`;
+    document.getElementById('successBox').classList.remove('hidden');
+    document.getElementById('formPanel').classList.add('hidden');
+    loadMine();
+  }catch(err){
+    if (err.status === 401){ window.location.href = '/login'; return; }
+    formError.textContent = err.message;
+    formError.classList.add('show');
+  }finally{
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Register Theater';
+  }
+});
+
+document.getElementById('addAnotherBtn').addEventListener('click', () => {
+  document.getElementById('successBox').classList.add('hidden');
+  document.getElementById('formPanel').classList.remove('hidden');
+  theaterForm.reset();
+  tMedianVal.textContent = tMedian.value;
+  buildPatternSliders(dowPatterns[tType.value]);
+});
+
+let myUsername = null;
+
+async function loadMine(){
+  const el = document.getElementById('mineList');
+  try{
+    const [me, theaters] = await Promise.all([ api('/api/me'), api('/api/theaters') ]);
+    myUsername = me.username;
+    const mine = theaters.filter(t => t.custom && t.createdBy === myUsername);
+    if (mine.length === 0){
+      el.innerHTML = '<div class="history-empty">You haven\'t added any theaters yet.</div>';
+      return;
+    }
+    el.innerHTML = mine.map(t => `
+      <div class="mine-row">
+        <div>
+          <div class="history-theater">${t.name}</div>
+          <div class="mine-sub">${t.id} · ${t.area} · ${typeLabel[t.type]} · baseline ${t.median}</div>
+        </div>
+        <button class="remove-btn" data-id="${t.id}">Remove</button>
+      </div>`).join('');
+    el.querySelectorAll('.remove-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try{
+          await api(`/api/theaters/${encodeURIComponent(btn.dataset.id)}`, { method:'DELETE' });
+          loadMine();
+        }catch(e){ btn.disabled = false; }
+      });
+    });
+  }catch(e){
+    if (e.status === 401){ window.location.href = '/login'; return; }
+    el.innerHTML = '<div class="history-empty">Could not load your theaters.</div>';
+  }
+}
+loadMine();
+</script>
+</body>
+</html>

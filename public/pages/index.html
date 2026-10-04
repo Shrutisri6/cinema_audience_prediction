@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forecast — Showtime Forecast</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="nav">
+    <a href="/" class="nav-link active">Forecast</a>
+    <a href="/theaters" class="nav-link">Theaters</a>
+    <a href="/add-theater" class="nav-link">Add Theater</a>
+    <a href="/history" class="nav-link">History</a>
+    <a href="/about" class="nav-link">About</a>
+  </div>
+  <div class="who">Signed in as <strong id="whoName">—</strong><button class="logout-btn" id="logoutBtn">Log Out</button></div>
+</div>
+
+<div class="wrap">
+  <div class="eyebrow">Cinema Audience Forecasting · Interactive Demo</div>
+  <div class="marquee" id="marquee"></div>
+  <p class="subhead">
+    Pick a theater and a showdate, dial in expected ticket demand, and this console
+    prints a forecasted head count &mdash; <strong>the same feature logic</strong>
+    (day-of-week effects, seasonality, booking signals, theater history) as the
+    notebook's LightGBM pipeline, computed here by a real backend on sample data.
+  </p>
+
+  <div class="booth-grid">
+    <div class="panel">
+      <div class="field">
+        <label for="theater">Theater</label>
+        <select id="theater"></select>
+        <div class="theater-meta" id="theaterMeta"></div>
+      </div>
+      <div class="field">
+        <label for="showdate">Showdate</label>
+        <input type="date" id="showdate">
+      </div>
+      <div class="field">
+        <label>Expected online bookings <span class="val" id="onlineVal"></span></label>
+        <input type="range" id="online" min="0" max="100" value="50">
+      </div>
+      <div class="field">
+        <label>Expected walk-in (box office) sales <span class="val" id="offlineVal"></span></label>
+        <input type="range" id="offline" min="0" max="100" value="50">
+      </div>
+      <button class="forecast-btn" id="forecastBtn">Print Forecast Ticket</button>
+    </div>
+
+    <div class="ticket" id="ticket">
+      <div class="stub-side">
+        <div class="stub-vert">ADMIT&nbsp;FORECAST</div>
+        <div class="barcode"></div>
+      </div>
+      <div class="ticket-top">
+        <div>
+          <div class="ticket-eyebrow">Forecast Stub</div>
+          <div class="ticket-theater" id="stubTheater">&mdash;</div>
+          <div class="ticket-sub" id="stubMeta">&mdash;</div>
+        </div>
+      </div>
+      <div class="ticket-count-block">
+        <div class="ticket-count-label">Predicted Audience</div>
+        <div class="ticket-count" id="stubCount">&mdash;</div>
+        <div class="ticket-count-unit">moviegoers, all showtimes combined</div>
+      </div>
+      <div class="ticket-range" id="stubRange">&mdash;</div>
+    </div>
+  </div>
+
+  <div class="factor-panel">
+    <div class="section-label">Why This Number</div>
+    <div class="panel" id="factorPanel"></div>
+  </div>
+
+  <div class="reel-panel">
+    <div class="section-label">14-Night Trend</div>
+    <div class="reel-strip">
+      <div class="sprockets" id="sprocketsTop"></div>
+      <div class="chart-inner"><svg id="trendChart" width="100%" height="150" viewBox="0 0 900 150" preserveAspectRatio="none"></svg></div>
+      <div class="chart-caption" id="chartCaption"><span></span><span>selected night in gold</span><span></span></div>
+      <div class="sprockets" id="sprocketsBottom"></div>
+    </div>
+  </div>
+
+  <div class="board-panel">
+    <div class="section-label">Model Bake-Off</div>
+    <div class="panel" id="boardPanel"></div>
+    <div class="board-note">Illustrative scores for the five regressors trained in the notebook (Ridge, Lasso, GradientBoosting, XGBoost, LightGBM) &mdash; run it on the real competition files to get your actual R² figures. LightGBM was retrained on the full dataset for final submission.</div>
+  </div>
+
+  <div style="text-align:center; margin-bottom:20px;">
+    <a href="/history" class="link-btn">View Full Forecast Log →</a>
+  </div>
+</div>
+
+<script src="/assets/api.js"></script>
+<script>
+const dowNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const typeLabel = { multiplex:'Multiplex', single:'Single Screen', premium:'Premium / IMAX', drivein:'Drive-In' };
+
+let theaters = [];
+let lastResult = null, lastTheater = null, lastDate = null;
+
+const marqueeText = "SHOWTIME FORECAST";
+const marqueeEl = document.getElementById('marquee');
+[...marqueeText].forEach((ch, i) => {
+  const span = document.createElement('span');
+  if (ch === ' ') { span.className = 'bulb-letter space'; }
+  else { span.className = 'bulb-letter'; span.textContent = ch; span.style.animationDelay = (i*0.12)+'s'; }
+  marqueeEl.appendChild(span);
+});
+
+const theaterSel = document.getElementById('theater');
+const dateInput = document.getElementById('showdate');
+const onlineSlider = document.getElementById('online');
+const offlineSlider = document.getElementById('offline');
+const onlineVal = document.getElementById('onlineVal');
+const offlineVal = document.getElementById('offlineVal');
+
+function updateTheaterMeta(){
+  const t = theaters.find(x => x.id === theaterSel.value);
+  if (!t) return;
+  document.getElementById('theaterMeta').innerHTML =
+    `<span><span class="dot"></span>${t.area}</span>` +
+    `<span><span class="dot"></span>${typeLabel[t.type]}</span>` +
+    `<span><span class="dot"></span>~${t.median} avg/night</span>`;
+}
+
+function renderTicket(theater, dateStr, result){
+  const date = new Date(dateStr + 'T12:00:00');
+  document.getElementById('stubTheater').textContent = theater.name;
+  document.getElementById('stubMeta').textContent = `${theater.id} · ${theater.area} · ${typeLabel[theater.type]}`;
+  document.getElementById('stubCount').textContent = result.pred.toLocaleString();
+  const label = `${dowNames[result.dow]}, ${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  document.getElementById('stubRange').textContent =
+    `${label}  ·  likely range ${result.low.toLocaleString()}–${result.high.toLocaleString()}`;
+  return label;
+}
+
+function pct(x){ const p=(x-1)*100; return (p>=0?'+':'')+p.toFixed(0)+'%'; }
+
+function renderFactors(result){
+  const rows = [
+    { name:'Day of week', val: result.dowMult },
+    { name:'Seasonal trend', val: result.seasonal },
+    { name:'Booking demand signal', val: result.bookingBlend }
+  ];
+  document.getElementById('factorPanel').innerHTML = rows.map(r => {
+    const delta = r.val - 1, isNeg = delta < 0;
+    const magnitude = Math.max(0.04, Math.min(1, Math.abs(delta)/0.5)) * 100;
+    const fillStyle = isNeg ? `right:50%; width:${magnitude/2}%;` : `left:50%; width:${magnitude/2}%;`;
+    return `<div class="factor-row">
+        <div class="factor-name">${r.name}</div>
+        <div class="factor-track"><div class="factor-fill ${isNeg?'neg':''}" style="${fillStyle}"></div></div>
+        <div class="factor-val ${isNeg?'neg':'pos'}">${pct(r.val)}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderTrend(points){
+  const w=900, h=150, padX=10, padY=16;
+  const vals = points.map(p=>p.pred);
+  const minV = Math.min(...vals)*0.9, maxV = Math.max(...vals)*1.1;
+  const xStep = (w-padX*2)/(points.length-1);
+  const xAt = i => padX+i*xStep;
+  const yAt = v => h-padY-((v-minV)/((maxV-minV)||1))*(h-padY*2);
+
+  let path = '';
+  points.forEach((p,i) => { path += `${i===0?'M':'L'}${xAt(i).toFixed(1)},${yAt(p.pred).toFixed(1)} `; });
+  const areaPath = path + `L${xAt(points.length-1).toFixed(1)},${h-padY} L${xAt(0).toFixed(1)},${h-padY} Z`;
+
+  let dots = '';
+  points.forEach((p,i) => {
+    const isCenter = p.offset === 0;
+    dots += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.pred).toFixed(1)}" r="${isCenter?5:2.5}" fill="${isCenter?'#e8b34c':'#9c93a9'}" ${isCenter?'stroke="#15121c" stroke-width="2"':''} />`;
+  });
+
+  document.getElementById('trendChart').innerHTML = `
+    <path d="${areaPath}" fill="rgba(232,179,76,0.08)" stroke="none"/>
+    <path d="${path.trim()}" fill="none" stroke="#e8b34c" stroke-width="2"/>
+    ${dots}`;
+
+  const first = new Date(points[0].date+'T12:00:00'), last = new Date(points[points.length-1].date+'T12:00:00');
+  document.getElementById('chartCaption').innerHTML =
+    `<span>${monthNames[first.getMonth()]} ${first.getDate()}</span><span>selected night in gold</span><span>${monthNames[last.getMonth()]} ${last.getDate()}</span>`;
+}
+
+function renderSprockets(){
+  const rowTop = document.getElementById('sprocketsTop');
+  const rowBottom = document.getElementById('sprocketsBottom');
+  for (let i=0;i<28;i++){
+    rowTop.appendChild(document.createElement('span'));
+    rowBottom.appendChild(document.createElement('span'));
+  }
+}
+renderSprockets();
+
+const modelScores = [
+  { name:'LightGBM', score:0.834, winner:true },
+  { name:'XGBoost', score:0.812 },
+  { name:'GradientBoosting', score:0.758 },
+  { name:'Ridge', score:0.681 },
+  { name:'Lasso', score:0.664 }
+];
+const maxScore = Math.max(...modelScores.map(m=>m.score));
+document.getElementById('boardPanel').innerHTML = modelScores.map((m,i) => `
+  <div class="board-row ${m.winner?'winner':''}">
+    <div class="board-rank">${String(i+1).padStart(2,'0')}</div>
+    <div class="board-name">${m.name}${m.winner?' — final':''}</div>
+    <div class="board-track"><div class="board-fill" style="width:${(m.score/maxScore*100).toFixed(0)}%"></div></div>
+    <div class="board-score">R² ${m.score.toFixed(3)}</div>
+  </div>`).join('');
+
+async function fullUpdate(){
+  updateTheaterMeta();
+  const theater = theaters.find(x => x.id === theaterSel.value);
+  if (!theater) return;
+  const dateStr = dateInput.value;
+  const onlinePct = parseInt(onlineSlider.value,10);
+  const offlinePct = parseInt(offlineSlider.value,10);
+  onlineVal.textContent = onlinePct+'%';
+  offlineVal.textContent = offlinePct+'%';
+
+  const [{ result }, trend] = await Promise.all([
+    api('/api/forecast', { method:'POST', body:{ theaterId: theater.id, date: dateStr, onlinePct, offlinePct } }),
+    api(`/api/forecast/trend?theaterId=${encodeURIComponent(theater.id)}&date=${dateStr}&onlinePct=${onlinePct}&offlinePct=${offlinePct}`)
+  ]);
+  const dateLabel = renderTicket(theater, dateStr, result);
+  renderFactors(result);
+  renderTrend(trend.points);
+  lastResult = result; lastTheater = theater; lastDate = dateLabel;
+}
+
+theaterSel.addEventListener('change', fullUpdate);
+dateInput.addEventListener('change', fullUpdate);
+onlineSlider.addEventListener('input', () => { onlineVal.textContent = onlineSlider.value+'%'; });
+offlineSlider.addEventListener('input', () => { offlineVal.textContent = offlineSlider.value+'%'; });
+
+const forecastBtn = document.getElementById('forecastBtn');
+forecastBtn.addEventListener('click', async () => {
+  const ticket = document.getElementById('ticket');
+  ticket.classList.add('updating');
+  forecastBtn.disabled = true;
+  const original = forecastBtn.textContent;
+  forecastBtn.textContent = 'Printing…';
+  try{
+    await fullUpdate();
+    if (lastResult && lastTheater){
+      await api('/api/history', { method:'POST', body:{
+        theaterName: lastTheater.name, theaterId: lastTheater.id, area: lastTheater.area,
+        dateStr: lastDate, pred: lastResult.pred
+      }});
+    }
+  }catch(e){
+    if (e.status === 401) window.location.href = '/login';
+  }finally{
+    ticket.classList.remove('updating');
+    forecastBtn.disabled = false;
+    forecastBtn.textContent = original;
+  }
+});
+
+(async function init(){
+  try{
+    theaters = await api('/api/theaters');
+    theaters.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.custom ? `${t.name} · ${t.id} (added by ${t.createdBy})` : `${t.name} · ${t.id}`;
+      theaterSel.appendChild(opt);
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get('theater');
+    if (requested && theaters.some(t => t.id === requested)) {
+      theaterSel.value = requested;
+    }
+
+    const today = new Date();
+    const defaultDate = new Date(today.getTime() + 7*24*3600*1000);
+    dateInput.value = defaultDate.toISOString().slice(0,10);
+    dateInput.min = new Date(today.getTime() - 60*24*3600*1000).toISOString().slice(0,10);
+    dateInput.max = new Date(today.getTime() + 180*24*3600*1000).toISOString().slice(0,10);
+
+    await fullUpdate();
+  }catch(e){
+    if (e.status === 401) window.location.href = '/login';
+  }
+})();
+</script>
+</body>
+</html>

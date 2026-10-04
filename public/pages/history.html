@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>History — Showtime Forecast</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="nav">
+    <a href="/" class="nav-link">Forecast</a>
+    <a href="/theaters" class="nav-link">Theaters</a>
+    <a href="/add-theater" class="nav-link">Add Theater</a>
+    <a href="/history" class="nav-link active">History</a>
+    <a href="/about" class="nav-link">About</a>
+  </div>
+  <div class="who">Signed in as <strong id="whoName">—</strong><button class="logout-btn" id="logoutBtn">Log Out</button></div>
+</div>
+
+<div class="wrap">
+  <div class="page-header">
+    <div class="page-eyebrow">Your Account</div>
+    <div class="page-title">Forecast Log</div>
+    <p class="page-sub">Every ticket you've printed on the Forecast page, saved to your account, most recent first.</p>
+  </div>
+
+  <div class="panel">
+    <div id="historyList"><div class="history-empty">Loading your log…</div></div>
+    <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+      <button class="clear-btn" id="clearHistoryBtn">Clear Log</button>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin-top:28px;">
+    <a href="/" class="link-btn">← Print Another Forecast</a>
+  </div>
+</div>
+
+<script src="/assets/api.js"></script>
+<script>
+function timeAgo(iso){
+  const mins = Math.floor((Date.now()-new Date(iso).getTime())/60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins/60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs/24)}d ago`;
+}
+
+function renderHistory(list){
+  const el = document.getElementById('historyList');
+  if (!list || list.length === 0){
+    el.innerHTML = '<div class="history-empty">No forecasts printed yet — head to the Forecast page to print your first ticket.</div>';
+    return;
+  }
+  el.innerHTML = list.map(item => `
+    <div class="history-row">
+      <div>
+        <div class="history-theater">${item.theaterName}</div>
+        <div class="history-sub">${item.theaterId} · ${item.area}</div>
+      </div>
+      <div class="history-date">${item.dateStr}</div>
+      <div class="history-count">${item.pred.toLocaleString()}</div>
+      <div class="history-stamp">${timeAgo(item.printedAt)}</div>
+    </div>`).join('');
+}
+
+(async function init(){
+  try{
+    const list = await api('/api/history');
+    renderHistory(list);
+  }catch(e){
+    if (e.status === 401){ window.location.href = '/login'; return; }
+    renderHistory([]);
+  }
+})();
+
+document.getElementById('clearHistoryBtn').addEventListener('click', async () => {
+  try{
+    const list = await api('/api/history', { method:'DELETE' });
+    renderHistory(list);
+  }catch(e){}
+});
+</script>
+</body>
+</html>

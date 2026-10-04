@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About — Showtime Forecast</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="nav">
+    <a href="/" class="nav-link">Forecast</a>
+    <a href="/theaters" class="nav-link">Theaters</a>
+    <a href="/add-theater" class="nav-link">Add Theater</a>
+    <a href="/history" class="nav-link">History</a>
+    <a href="/about" class="nav-link active">About</a>
+  </div>
+  <div class="who">Signed in as <strong id="whoName">—</strong><button class="logout-btn" id="logoutBtn">Log Out</button></div>
+</div>
+
+<div class="wrap">
+  <div class="page-header">
+    <div class="page-eyebrow">Behind The Scenes</div>
+    <div class="page-title">How This Works</div>
+  </div>
+
+  <div class="about-block">
+    <h3>The Forecast Logic</h3>
+    <p>
+      Each theater carries a historical baseline &mdash; its median nightly audience.
+      The backend multiplies that baseline by three factors: a day-of-week effect
+      (weekends and Fridays trend higher), a seasonal wave across the year, and a
+      booking-demand signal built from the online/walk-in sliders on the Forecast
+      page. The combined ratio is clipped to a sane range, mirroring how the
+      notebook clips its <code>target_ratio</code> before training.
+    </p>
+    <p>
+      This mirrors the notebook's overall approach: instead of predicting raw
+      audience counts directly, the winning LightGBM model learns
+      <code>log(audience / baseline)</code> &mdash; a ratio relative to each
+      theater's own history &mdash; which handles the huge scale differences
+      between a small single-screen theater and a large multiplex.
+    </p>
+  </div>
+
+  <div class="about-block">
+    <h3>Model Bake-Off</h3>
+    <p>
+      The notebook trained and compared five regressors: Ridge, Lasso,
+      GradientBoosting, XGBoost, and LightGBM. LightGBM came out on top and was
+      retrained on the full dataset for the final submission. The scores shown
+      on the Forecast page are illustrative stand-ins for that comparison &mdash;
+      run the notebook on the actual competition files to get real R² figures.
+    </p>
+  </div>
+
+  <div class="about-block">
+    <h3>What's Real vs. Simulated</h3>
+    <p>
+      <strong style="color:var(--text)">Real:</strong> your account, login session,
+      password hashing, and everything on your Forecast Log &mdash; all served by
+      this Express backend and stored in a local database file.
+    </p>
+    <p>
+      <strong style="color:var(--text)">Simulated:</strong> the eight theaters and
+      their baselines are realistic sample data, not the actual Cinema Audience
+      Forecasting competition dataset, since no dataset or trained model was
+      supplied for this build.
+    </p>
+  </div>
+
+  <div class="about-block">
+    <h3>Adding Your Own Theaters</h3>
+    <p>
+      The Add Theater page lets you register a theater with its own name,
+      area, type, baseline nightly audience, and a custom weekly demand
+      pattern (how busy each night of the week tends to be, from 0.3&times;
+      quiet up to 2.5&times; packed). Once submitted, it's saved to the
+      database and shows up in the Forecast page's theater list for everyone
+      &mdash; you can forecast against it immediately, and remove it later
+      from the Add Theater page if you created it.
+    </p>
+  </div>
+
+  <div class="about-block">
+    <h3>Wiring In The Real Pipeline</h3>
+    <p>
+      To turn this into a genuine prediction service: train and save the
+      notebook's final LightGBM model, stand up a small inference endpoint that
+      applies the same feature engineering, and swap the sample day-of-week /
+      seasonal formula in <code>server.js</code> for a call to that endpoint.
+      Then replace the sample theater list with real theaters and their actual
+      historical stats.
+    </p>
+  </div>
+</div>
+
+<script src="/assets/api.js"></script>
+</body>
+</html>
